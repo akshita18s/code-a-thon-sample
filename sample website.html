@@ -1,0 +1,1508 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#0f766e" />
+<title>SafeTrail — Travel Safe</title>
+
+<!-- Tailwind (styling) -->
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] },
+        colors: {
+          brand: {
+            50:'#f0fdfa',100:'#ccfbf1',200:'#99f6e4',300:'#5eead4',
+            400:'#2dd4bf',500:'#14b8a6',600:'#0d9488',700:'#0f766e',
+            800:'#115e59',900:'#134e4a'
+          }
+        }
+      }
+    }
+  };
+</script>
+
+<!-- Leaflet (maps) -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<!-- Font -->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+
+<style>
+  html, body { -webkit-tap-highlight-color: transparent; }
+  body {
+    font-family: 'Inter', system-ui, sans-serif;
+    background: #f8fafc;
+    color: #1e293b;
+    overscroll-behavior-y: none;
+  }
+  .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+  .safe-top { padding-top: env(safe-area-inset-top); }
+
+  /* Custom scrollbar hide */
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+  .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+  /* Leaflet tweaks */
+  .leaflet-container { font-family: inherit; background: #e2e8f0; border-radius: 16px; }
+  .leaflet-control-attribution { font-size: 9px !important; background: rgba(255,255,255,.8) !important; }
+
+  /* Emoji pins */
+  .st-pin {
+    display: flex; align-items: center; justify-content: center;
+    width: 34px; height: 34px; border-radius: 50%;
+    font-size: 17px; line-height: 1;
+    box-shadow: 0 2px 8px rgba(15,23,42,.35);
+    border: 2px solid #fff; background: #0f766e;
+  }
+  .st-pin-poi {
+    background: #f59e0b; width: 28px; height: 28px; font-size: 14px;
+  }
+  .st-pin-police { background: #1d4ed8; }
+  .st-pin-hospital { background: #dc2626; }
+
+  /* Pulse ring on SOS */
+  @keyframes pulse-ring {
+    0% { transform: scale(0.9); opacity: 0.7; }
+    70% { transform: scale(1.5); opacity: 0; }
+    100% { transform: scale(1.5); opacity: 0; }
+  }
+  .animate-pulse-ring { animation: pulse-ring 1.8s cubic-bezier(0.4,0,0.6,1) infinite; }
+
+  @keyframes slide-up {
+    from { transform: translateY(16px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+  }
+  .animate-slide-up { animation: slide-up 0.25s ease-out; }
+
+  @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+  .animate-fade-in { animation: fade-in 0.2s ease-out; }
+
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; animation: fade-in 0.2s ease-out; }
+
+  .card {
+    background: #fff; border-radius: 16px;
+    box-shadow: 0 1px 3px rgba(15,23,42,.06), 0 8px 24px -12px rgba(15,23,42,.18);
+    border: 1px solid #f1f5f9; padding: 16px;
+  }
+  .card-tight {
+    background: #fff; border-radius: 12px;
+    box-shadow: 0 1px 3px rgba(15,23,42,.06), 0 8px 24px -12px rgba(15,23,42,.18);
+    border: 1px solid #f1f5f9; padding: 12px;
+  }
+
+  .line-clamp-2 {
+    display: -webkit-box; -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical; overflow: hidden;
+  }
+  .line-clamp-3 {
+    display: -webkit-box; -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical; overflow: hidden;
+  }
+
+  /* Spinner */
+  .spinner {
+    border: 3px solid rgba(15,118,110,.15);
+    border-top-color: #0f766e;
+    border-radius: 50%;
+    width: 20px; height: 20px;
+    animation: spin 0.8s linear infinite;
+    display: inline-block;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+
+<body>
+
+<!-- ==================== APP SHELL ==================== -->
+<div id="app" class="min-h-screen flex flex-col max-w-2xl mx-auto bg-slate-50">
+
+  <!-- ---------- Header ---------- -->
+  <header class="sticky top-0 z-30 bg-white/90 backdrop-blur border-b border-slate-200 safe-top">
+    <div class="px-4 py-3 flex items-center gap-3">
+      <div class="h-10 w-10 rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 flex items-center justify-center text-white text-xl shadow-md shrink-0">
+        🛡️
+      </div>
+      <div class="flex-1 min-w-0">
+        <h1 class="font-extrabold text-lg text-slate-900 leading-tight">SafeTrail</h1>
+        <p class="text-[11px] text-slate-500 font-medium">Travel India safely</p>
+      </div>
+      <div id="locationPill" class="text-[10px] font-bold px-2.5 py-1.5 rounded-full bg-slate-100 text-slate-500">
+        Locating…
+      </div>
+    </div>
+  </header>
+
+  <!-- ---------- Main content ---------- -->
+  <main class="flex-1 px-4 py-4 pb-40 space-y-4">
+
+    <!-- ============ HOME TAB ============ -->
+    <section id="tab-home" class="tab-panel active space-y-4">
+      <div id="locationBanner"></div>
+
+      <div>
+        <h2 class="text-xl font-extrabold text-slate-900 leading-tight">
+          Hello 👋 <br class="sm:hidden" />
+          <span class="text-brand-700">How can we help?</span>
+        </h2>
+        <p class="text-sm text-slate-500 mt-1">Pick what's happening. We'll get you help fast.</p>
+      </div>
+
+      <!-- Category tiles -->
+      <div id="categoryGrid" class="grid grid-cols-2 gap-3"></div>
+
+      <!-- Weather -->
+      <div id="weatherCard" class="card">
+        <div class="flex items-center gap-2 mb-2">
+          <span class="text-lg">🌤️</span>
+          <p class="font-bold text-slate-900">Weather now</p>
+        </div>
+        <p class="text-sm text-slate-500">Loading weather…</p>
+      </div>
+
+      <!-- Alerts -->
+      <div class="card">
+        <div class="flex items-center justify-between mb-3">
+          <div class="flex items-center gap-2">
+            <span class="text-lg">🚨</span>
+            <p class="font-bold text-slate-900">Live disaster alerts</p>
+          </div>
+          <select id="stateSelect" class="text-xs font-semibold bg-slate-100 border border-slate-200 rounded-lg px-2 py-1.5 text-slate-700 focus:outline-none focus:ring-2 focus:ring-brand-500">
+            <option value="rajasthan">Rajasthan</option>
+            <option value="delhi">Delhi</option>
+            <option value="maharashtra">Maharashtra</option>
+            <option value="uttarakhand">Uttarakhand</option>
+            <option value="kerala">Kerala</option>
+            <option value="tamil_nadu">Tamil Nadu</option>
+            <option value="uttar_pradesh">Uttar Pradesh</option>
+            <option value="west_bengal">West Bengal</option>
+            <option value="himachal_pradesh">Himachal Pradesh</option>
+            <option value="gujarat">Gujarat</option>
+            <option value="karnataka">Karnataka</option>
+            <option value="goa">Goa</option>
+          </select>
+        </div>
+        <div id="alertsFeed">
+          <div class="space-y-2">
+            <div class="h-14 bg-slate-100 rounded-xl animate-pulse"></div>
+            <div class="h-14 bg-slate-100 rounded-xl animate-pulse"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tourist quick links -->
+      <div class="card">
+        <div class="flex items-center gap-2 mb-3">
+          <span class="text-lg">🧳</span>
+          <p class="font-bold text-slate-900">Travel handy links</p>
+        </div>
+        <div id="touristLinks" class="grid grid-cols-2 gap-2"></div>
+      </div>
+    </section>
+
+    <!-- ============ MAP TAB ============ -->
+    <section id="tab-map" class="tab-panel space-y-3">
+      <div class="flex items-center justify-between">
+        <h2 class="text-lg font-extrabold text-slate-900">🗺️ Around you</h2>
+        <div class="flex gap-1.5">
+          <button id="togglePois" class="text-xs font-bold px-3 py-1.5 rounded-full bg-brand-100 text-brand-800 border border-brand-200">
+            ⭐ Attractions
+          </button>
+          <button id="recenterBtn" class="text-xs font-bold px-3 py-1.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200">
+            📍 Recenter
+          </button>
+        </div>
+      </div>
+      <div id="map" class="w-full h-[60vh] rounded-2xl overflow-hidden shadow-md"></div>
+      <div class="card-tight">
+        <div class="flex items-center gap-3 text-xs text-slate-600">
+          <span class="flex items-center gap-1"><span class="inline-block h-3 w-3 rounded-full bg-brand-700"></span> You</span>
+          <span class="flex items-center gap-1"><span class="inline-block h-3 w-3 rounded-full bg-blue-700"></span> Police</span>
+          <span class="flex items-center gap-1"><span class="inline-block h-3 w-3 rounded-full bg-red-600"></span> Hospital</span>
+          <span class="flex items-center gap-1"><span class="inline-block h-3 w-3 rounded-full bg-amber-500"></span> Attraction</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ CONTACTS TAB ============ -->
+    <section id="tab-contacts" class="tab-panel space-y-3">
+      <div>
+        <h2 class="text-lg font-extrabold text-slate-900">📞 Emergency numbers</h2>
+        <p class="text-xs text-slate-500 mt-0.5">All toll-free. Tap to call — works without a data plan.</p>
+      </div>
+      <div id="contactsList" class="space-y-2"></div>
+    </section>
+
+    <!-- ============ VOICE TAB ============ -->
+    <section id="tab-voice" class="tab-panel space-y-3">
+      <div>
+        <h2 class="text-lg font-extrabold text-slate-900">🎙️ Voice assistant</h2>
+        <p class="text-xs text-slate-500 mt-0.5">Speak a short phrase. We'll translate it and read it back.</p>
+      </div>
+
+      <div class="card text-center">
+        <button id="micBtn" class="mx-auto h-24 w-24 rounded-full bg-gradient-to-br from-brand-500 to-brand-700 text-white text-4xl shadow-xl active:scale-95 transition relative">
+          <span class="absolute inset-0 rounded-full bg-brand-500/40 animate-pulse-ring" id="micRing" style="display:none"></span>
+          <span class="relative">🎙️</span>
+        </button>
+        <p id="micHint" class="text-xs text-slate-500 mt-3">Tap and speak. Chrome / Edge recommended.</p>
+
+        <div class="mt-4 grid grid-cols-2 gap-2">
+          <select id="fromLang" class="text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white">
+            <option value="en-IN">English (India)</option>
+            <option value="hi-IN">हिन्दी (Hindi)</option>
+            <option value="ta-IN">தமிழ் (Tamil)</option>
+            <option value="bn-IN">বাংলা (Bengali)</option>
+            <option value="mr-IN">मराठी (Marathi)</option>
+            <option value="es-ES">Español</option>
+            <option value="fr-FR">Français</option>
+            <option value="de-DE">Deutsch</option>
+            <option value="ja-JP">日本語</option>
+          </select>
+          <select id="toLang" class="text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white">
+            <option value="en">English</option>
+            <option value="hi">हिन्दी</option>
+            <option value="ta">தமிழ்</option>
+            <option value="bn">বাংলা</option>
+            <option value="mr">मराठी</option>
+            <option value="es">Español</option>
+            <option value="fr">Français</option>
+            <option value="de">Deutsch</option>
+            <option value="ja">日本語</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="flex items-center gap-2 mb-2">
+          <span class="text-sm font-bold text-slate-400 uppercase tracking-wider">You said</span>
+        </div>
+        <p id="heardText" class="text-slate-900 font-semibold text-base min-h-[1.5rem]">—</p>
+      </div>
+
+      <div class="card">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-sm font-bold text-slate-400 uppercase tracking-wider">Translation</span>
+          <button id="speakBtn" class="text-xs font-bold px-3 py-1 rounded-full bg-brand-100 text-brand-800 border border-brand-200">🔊 Read aloud</button>
+        </div>
+        <p id="translatedText" class="text-slate-900 font-bold text-lg min-h-[1.75rem]">—</p>
+        <p id="translateNote" class="text-[11px] text-slate-400 mt-2"></p>
+      </div>
+
+      <div class="card">
+        <p class="text-sm font-bold text-slate-400 uppercase tracking-wider mb-2">Quick phrases</p>
+        <div id="phraseChips" class="flex flex-wrap gap-2"></div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ---------- Bottom nav ---------- -->
+  <nav class="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur border-t border-slate-200 safe-bottom max-w-2xl mx-auto">
+    <div class="grid grid-cols-4">
+      <button data-tab="home" class="navBtn flex flex-col items-center gap-0.5 py-2.5 text-[11px] font-semibold text-brand-700">
+        <span class="text-xl leading-none">🏠</span>Home
+        <span class="h-0.5 w-6 rounded-full bg-brand-600"></span>
+      </button>
+      <button data-tab="map" class="navBtn flex flex-col items-center gap-0.5 py-2.5 text-[11px] font-semibold text-slate-400">
+        <span class="text-xl leading-none">🗺️</span>Map
+        <span class="h-0.5 w-6 rounded-full bg-transparent"></span>
+      </button>
+      <button data-tab="contacts" class="navBtn flex flex-col items-center gap-0.5 py-2.5 text-[11px] font-semibold text-slate-400">
+        <span class="text-xl leading-none">📞</span>Helplines
+        <span class="h-0.5 w-6 rounded-full bg-transparent"></span>
+      </button>
+      <button data-tab="voice" class="navBtn flex flex-col items-center gap-0.5 py-2.5 text-[11px] font-semibold text-slate-400">
+        <span class="text-xl leading-none">🎙️</span>Assist
+        <span class="h-0.5 w-6 rounded-full bg-transparent"></span>
+      </button>
+    </div>
+  </nav>
+
+  <!-- ---------- SOS button ---------- -->
+  <button id="sosBtn" class="fixed right-4 bottom-24 z-50 h-20 w-20 rounded-full bg-gradient-to-br from-red-500 to-red-700 text-white shadow-2xl flex flex-col items-center justify-center active:scale-95 transition border-4 border-white">
+    <span class="absolute inset-0 rounded-full bg-red-500 animate-pulse-ring"></span>
+    <span class="text-2xl leading-none relative">🆘</span>
+    <span class="text-[10px] font-extrabold tracking-widest mt-0.5 relative">SOS</span>
+  </button>
+
+</div>
+
+<!-- ==================== MODALS ==================== -->
+<div id="modalRoot"></div>
+
+<!-- ==================== SCRIPT ==================== -->
+<script>
+/* ============================================================
+   SafeTrail — single-file demo
+   All features run client-side. Some are genuinely live
+   (geolocation, Open-Meteo, Overpass, tel:/sms: links);
+   dispatch status is a clearly-labelled simulation.
+   ============================================================ */
+
+(() => {
+  'use strict';
+
+  /* -----------------------------------------------------------
+     1. STATIC DATA
+     ----------------------------------------------------------- */
+
+  const CATEGORIES = [
+    {
+      id: 'medical', label: 'Medical', emoji: '🚑',
+      color: 'bg-rose-50 border-rose-200',
+      accent: 'bg-rose-500',
+      primary: '108', alts: ['102', '112'],
+      blurb: 'Injury or illness.',
+      checklist: [
+        'Call 108 or 102 for an ambulance right now.',
+        'Tell them your location and a nearby landmark.',
+        'Do not move someone with a neck or back injury.',
+        'Keep the person warm and talk to them.',
+        'Show this screen to any bystander so they can help.'
+      ]
+    },
+    {
+      id: 'disaster', label: 'Disaster', emoji: '🌊',
+      color: 'bg-sky-50 border-sky-200',
+      accent: 'bg-sky-500',
+      primary: '1070', alts: ['112'],
+      blurb: 'Flood, quake, cyclone.',
+      checklist: [
+        'Move to higher ground or the nearest marked shelter.',
+        'Stay away from windows, trees and power lines.',
+        'Never cross flooded roads — 15 cm of moving water can knock you down.',
+        'Call 1070 for the Disaster Relief Commissioner.',
+        'Follow local authority instructions above anything else.'
+      ]
+    },
+    {
+      id: 'crime', label: 'Crime / Safety', emoji: '🚨',
+      color: 'bg-amber-50 border-amber-200',
+      accent: 'bg-amber-500',
+      primary: '112', alts: ['100', '1091', '1930'],
+      blurb: 'Theft or feeling unsafe.',
+      checklist: [
+        'Get to a crowded, well-lit public place if you can.',
+        'Call 112 — it connects to police, fire and medical.',
+        'For harassment, call the Women\u2019s Helpline on 1091.',
+        'For online fraud, call Cyber Crime on 1930.',
+        'Note time, place and description. Report it officially.'
+      ]
+    },
+    {
+      id: 'lost', label: 'Lost / Stranded', emoji: '🧭',
+      color: 'bg-violet-50 border-violet-200',
+      accent: 'bg-violet-500',
+      primary: '1363', alts: ['112', '1800-111-363'],
+      blurb: 'Lost your way or documents.',
+      checklist: [
+        'Stay put if it\u2019s safe — moving makes you harder to find.',
+        'Share your live location with a trusted contact.',
+        'Call the Tourist Helpline on 1363 (24x7, 12 languages).',
+        'If your passport is lost, contact your embassy and file a police report.',
+        'Keep your phone charged and conserve battery.'
+      ]
+    },
+    {
+      id: 'fire', label: 'Fire', emoji: '🔥',
+      color: 'bg-orange-50 border-orange-200',
+      accent: 'bg-orange-500',
+      primary: '101', alts: ['112'],
+      blurb: 'Fire, smoke, gas leak.',
+      checklist: [
+        'Get out, stay out. Do not go back for belongings.',
+        'Call 101 or 112 immediately.',
+        'Stay low under smoke. Cover your nose with a damp cloth.',
+        'Never use a lift during a fire — use the stairs.',
+        'If your clothes catch fire: stop, drop and roll.'
+      ]
+    }
+  ];
+
+  const CONTACTS = [
+    { number: '112',            service: 'National Emergency (Police / Fire / Medical)', cat: 'All' },
+    { number: '100',            service: 'Police',                                        cat: 'Police' },
+    { number: '101',            service: 'Fire',                                          cat: 'Fire' },
+    { number: '102',            service: 'Ambulance',                                     cat: 'Medical' },
+    { number: '108',            service: 'Ambulance (Emergency Response)',                cat: 'Medical' },
+    { number: '1363',           service: 'Tourist Helpline (24x7, 12 languages)',         cat: 'Tourist' },
+    { number: '1800-111-363',   service: 'Tourist Helpline (Toll Free)',                  cat: 'Tourist' },
+    { number: '1070',           service: 'Disaster Relief Commissioner / NDMA',           cat: 'Disaster' },
+    { number: '1091',           service: 'Women\u2019s Helpline',                         cat: 'Safety' },
+    { number: '1098',           service: 'Child Helpline',                                cat: 'Safety' },
+    { number: '1930',           service: 'Cyber Crime Helpline',                          cat: 'Safety' },
+    { number: '1073',           service: 'Road Accident Emergency',                       cat: 'Medical' }
+  ];
+
+  const TOURIST_LINKS = [
+    { name: 'Booking.com',  desc: 'Hotels',   url: 'https://www.booking.com/',        emoji: '🏨' },
+    { name: 'MakeMyTrip',   desc: 'Travel',   url: 'https://www.makemytrip.com/',    emoji: '✈️' },
+    { name: 'Zomato',       desc: 'Food',     url: 'https://www.zomato.com/',         emoji: '🍽️' },
+    { name: 'Swiggy',       desc: 'Delivery', url: 'https://www.swiggy.com/',         emoji: '🛵' },
+    { name: 'TripAdvisor',  desc: 'Things',   url: 'https://www.tripadvisor.in/',     emoji: '🎟️' },
+    { name: 'Uber',         desc: 'Cabs',     url: 'https://m.uber.com/',             emoji: '🚕' },
+    { name: 'Ola',          desc: 'Cabs',     url: 'https://book.olacabs.com/',      emoji: '🚖' },
+    { name: 'Rapido',       desc: 'Bikes',    url: 'https://rapido.bike/',            emoji: '🏍️' }
+  ];
+
+  const PHRASEBOOK = [
+    { en: 'I need help',                     hi: 'मुझे मदद चाहिए',              ta: 'எனக்கு உதவி தேவை',         bn: 'আমার সাহায্য দরকার',    es: 'Necesito ayuda',                    fr: "J'ai besoin d'aide",              de: 'Ich brauche Hilfe',              ja: '助けが必要です' },
+    { en: 'Where is the nearest hospital?',  hi: 'सबसे नज़दीकी अस्पताल कहाँ है?', ta: 'அருகில் உள்ள மருத்துவமனை எங்கே?', bn: 'নিকটতম হাসপাতাল কোথায়?', es: '¿Dónde está el hospital más cercano?', fr: "Où est l'hôpital le plus proche ?", de: 'Wo ist das nächste Krankenhaus?', ja: '一番近い病院はどこですか？' },
+    { en: 'Call the police',                 hi: 'पुलिस को बुलाओ',              ta: 'காவல்துறையை அழைக்கவும்',  bn: 'পুলিশ ডাকুন',           es: 'Llame a la policía',                fr: 'Appelez la police',               de: 'Rufen Sie die Polizei',          ja: '警察を呼んでください' },
+    { en: 'I am lost',                       hi: 'मैं रास्ता भटक गया हूँ',       ta: 'நான் வழி தவறிவிட்டேன்',   bn: 'আমি হারিয়ে গেছি',       es: 'Estoy perdido',                     fr: 'Je suis perdu',                   de: 'Ich habe mich verlaufen',         ja: '道に迷いました' },
+    { en: 'I need a doctor',                 hi: 'मुझे डॉक्टर चाहिए',           ta: 'எனக்கு மருத்துவர் தேவை',   bn: 'আমার ডাক্তার দরকার',    es: 'Necesito un médico',                fr: "J'ai besoin d'un médecin",        de: 'Ich brauche einen Arzt',          ja: '医者が必要です' },
+    { en: 'Please help me',                  hi: 'कृपया मेरी मदद करें',         ta: 'தயவுசெய்து உதவுங்கள்',    bn: 'দয়া করে সাহায্য করুন',  es: 'Por favor ayúdeme',                 fr: "S'il vous plaît aidez-moi",       de: 'Bitte helfen Sie mir',            ja: '助けてください' },
+    { en: 'Where is the toilet?',            hi: 'शौचालय कहाँ है?',             ta: 'கழிவறை எங்கே?',           bn: 'টয়লেট কোথায়?',         es: '¿Dónde está el baño?',              fr: 'Où sont les toilettes ?',         de: 'Wo ist die Toilette?',            ja: 'トイレはどこですか？' },
+    { en: 'How much does it cost?',          hi: 'यह कितने का है?',              ta: 'இதன் விலை என்ன?',          bn: 'এর দাম কত?',            es: '¿Cuánto cuesta?',                   fr: 'Combien ça coûte ?',              de: 'Wie viel kostet das?',            ja: 'いくらですか？' },
+    { en: 'I am a tourist',                  hi: 'मैं एक पर्यटक हूँ',            ta: 'நான் ஒரு சுற்றுலாப் பயணி', bn: 'আমি একজন পর্যটক',       es: 'Soy turista',                       fr: 'Je suis touriste',                de: 'Ich bin Tourist',                 ja: '観光客です' },
+    { en: 'Fire!',                           hi: 'आग!',                         ta: 'தீ!',                     bn: 'আগুন!',                 es: '¡Fuego!',                           fr: 'Au feu !',                        de: 'Feuer!',                          ja: '火事です！' }
+  ];
+
+  const WEATHER_CODES = {
+    0:['Clear sky','☀️'], 1:['Mainly clear','🌤️'], 2:['Partly cloudy','⛅'], 3:['Overcast','☁️'],
+    45:['Fog','🌫️'], 48:['Freezing fog','🌫️'],
+    51:['Light drizzle','🌦️'], 53:['Drizzle','🌦️'], 55:['Heavy drizzle','🌧️'],
+    61:['Light rain','🌦️'], 63:['Rain','🌧️'], 65:['Heavy rain','🌧️'],
+    71:['Light snow','🌨️'], 73:['Snow','🌨️'], 75:['Heavy snow','❄️'],
+    80:['Rain showers','🌦️'], 81:['Rain showers','🌧️'], 82:['Violent showers','⛈️'],
+    95:['Thunderstorm','⛈️'], 96:['Thunderstorm + hail','⛈️'], 99:['Severe thunderstorm','⛈️']
+  };
+
+  // Demo police stations & hospitals (Jaipur). Replace for your city.
+  const PLACES = [
+    { name: 'Manak Chowk Police Station',   type: 'police',   lat: 26.9239, lng: 75.8267, phone: '0141-2571000' },
+    { name: 'Ashok Nagar Police Station',   type: 'police',   lat: 26.9024, lng: 75.8070, phone: '0141-2200100' },
+    { name: 'Jyoti Nagar Police Station',   type: 'police',   lat: 26.9200, lng: 75.8500, phone: '0141-2250100' },
+    { name: 'Amber Police Station',         type: 'police',   lat: 26.9855, lng: 75.8513, phone: '0141-2530100' },
+    { name: 'Vidhayak Puri Police Station', type: 'police',   lat: 26.8925, lng: 75.7990, phone: '0141-2200200' },
+    { name: 'SMS Hospital',                 type: 'hospital', lat: 26.9080, lng: 75.8140, phone: '0141-2560291' },
+    { name: 'Fortis Escorts Hospital',      type: 'hospital', lat: 26.8560, lng: 75.8070, phone: '0141-2547000' },
+    { name: 'Narayana Multispeciality',     type: 'hospital', lat: 26.8420, lng: 75.7830, phone: '0141-7105555' },
+    { name: 'MG Medical College',           type: 'hospital', lat: 26.8560, lng: 75.8000, phone: '0141-2771717' }
+  ];
+
+  /* -----------------------------------------------------------
+     2. STATE
+     ----------------------------------------------------------- */
+
+  const state = {
+    position: null,          // { lat, lng, accuracy }
+    isLive: false,
+    lastUpdated: null,
+    locationError: null,
+    selectedCategory: null,
+    showPois: false,
+    pois: [],
+    nearest: { police: null, hospital: null },
+    map: null,
+    userMarker: null,
+    accuracyCircle: null,
+    poiLayer: null,
+    responderLayer: null,
+    currentTab: 'home'
+  };
+
+  const FALLBACK_CENTER = [26.9124, 75.7873]; // Jaipur
+
+  const $  = (sel) => document.querySelector(sel);
+  const $$ = (sel) => document.querySelectorAll(sel);
+
+  const escapeHtml = (s) => String(s ?? '')
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+
+  function haversineKm(lat1, lng1, lat2, lng2) {
+    const R = 6371, rad = (d) => d * Math.PI / 180;
+    const dLat = rad(lat2 - lat1), dLng = rad(lng2 - lng1);
+    const a = Math.sin(dLat/2)**2 + Math.cos(rad(lat1))*Math.cos(rad(lat2))*Math.sin(dLng/2)**2;
+    return 2 * R * Math.asin(Math.sqrt(a));
+  }
+
+  async function fetchWithTimeout(url, opts = {}, ms = 9000) {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), ms);
+    try { return await fetch(url, { ...opts, signal: ctrl.signal }); }
+    finally { clearTimeout(t); }
+  }
+
+  /* -----------------------------------------------------------
+     3. GEOLOCATION
+     ----------------------------------------------------------- */
+
+  const STORAGE_KEY = 'safetrail.lastPosition';
+
+  function getDeviceId() {
+    let id = localStorage.getItem('safetrail.deviceId');
+    if (!id) {
+      id = 'device-' + Math.random().toString(36).slice(2, 10);
+      localStorage.setItem('safetrail.deviceId', id);
+    }
+    return id;
+  }
+
+  function hydrateCache() {
+    try {
+      const cached = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
+      if (cached?.coords?.lat != null) {
+        state.position = cached.coords;
+        state.lastUpdated = cached.timestamp;
+      }
+    } catch { /* ignore */ }
+  }
+
+  function startGeolocation() {
+    if (!('geolocation' in navigator)) {
+      state.locationError = 'This browser does not support location.';
+      renderLocationUI();
+      return;
+    }
+
+    navigator.geolocation.watchPosition(
+      (pos) => {
+        state.position = {
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+          accuracy: pos.coords.accuracy ?? null
+        };
+        state.lastUpdated = Date.now();
+        state.isLive = true;
+        state.locationError = null;
+
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify({
+            coords: state.position,
+            timestamp: state.lastUpdated
+          }));
+        } catch { /* ignore */ }
+
+        renderLocationUI();
+        updateUserMarker();
+        loadWeather();
+        loadPois();
+        computeNearest();
+      },
+      (err) => {
+        state.isLive = false;
+        if (err.code === err.PERMISSION_DENIED)
+          state.locationError = 'Location permission was denied. Showing last known position.';
+        else if (err.code === err.POSITION_UNAVAILABLE)
+          state.locationError = 'Location is unavailable right now.';
+        else
+          state.locationError = 'Location timed out.';
+        renderLocationUI();
+      },
+      { enableHighAccuracy: true, maximumAge: 10000, timeout: 15000 }
+    );
+  }
+
+  function renderLocationUI() {
+    const pill = $('#locationPill');
+    const banner = $('#locationBanner');
+    const p = state.position;
+
+    if (!p && !state.locationError) {
+      pill.className = 'text-[10px] font-bold px-2.5 py-1.5 rounded-full bg-slate-100 text-slate-500';
+      pill.textContent = 'Locating…';
+      banner.innerHTML = `
+        <div class="rounded-xl bg-sky-50 border border-sky-200 px-3 py-2.5 flex items-center gap-2 text-sm text-sky-800">
+          <span class="animate-pulse text-base">📍</span>
+          <span class="font-medium">Finding your location…</span>
+        </div>`;
+      return;
+    }
+
+    if (!p && state.locationError) {
+      pill.className = 'text-[10px] font-bold px-2.5 py-1.5 rounded-full bg-amber-100 text-amber-800';
+      pill.textContent = 'No location';
+      banner.innerHTML = `
+        <div class="rounded-xl bg-amber-50 border border-amber-200 px-3 py-2.5 flex items-start gap-2 text-sm text-amber-900">
+          <span class="text-base leading-none mt-0.5">⚠️</span>
+          <div>
+            <p class="font-semibold">${escapeHtml(state.locationError)}</p>
+            <p class="text-xs mt-0.5 text-amber-800">Allow location access in your browser settings, then reload.</p>
+          </div>
+        </div>`;
+      return;
+    }
+
+    if (state.isLive) {
+      pill.className = 'text-[10px] font-bold px-2.5 py-1.5 rounded-full bg-emerald-100 text-emerald-800';
+      pill.textContent = '● Live';
+      banner.innerHTML = `
+        <div class="rounded-xl bg-emerald-50 border border-emerald-200 px-3 py-2.5 flex items-center gap-2 text-sm text-emerald-900">
+          <span class="relative flex h-2.5 w-2.5">
+            <span class="absolute inline-flex h-full w-full rounded-full bg-emerald-500 opacity-75 animate-ping"></span>
+            <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-600"></span>
+          </span>
+          <span class="font-semibold">Live location on</span>
+          ${p.accuracy != null ? `<span class="text-xs text-emerald-700 ml-auto">±${Math.round(p.accuracy)} m</span>` : ''}
+        </div>`;
+    } else {
+      const mins = state.lastUpdated ? Math.max(0, Math.floor((Date.now() - state.lastUpdated) / 60000)) : null;
+      pill.className = 'text-[10px] font-bold px-2.5 py-1.5 rounded-full bg-amber-100 text-amber-800';
+      pill.textContent = 'Last known';
+      banner.innerHTML = `
+        <div class="rounded-xl bg-amber-50 border border-amber-200 px-3 py-2.5 flex items-start gap-2 text-sm text-amber-900">
+          <span class="text-base leading-none mt-0.5">🕓</span>
+          <div>
+            <p class="font-semibold">Last known location${mins != null ? ` — ${mins === 0 ? 'just now' : mins + ' min ago'}` : ''}</p>
+            <p class="text-xs mt-0.5 text-amber-800">This is a cached position, not a live one. ${escapeHtml(state.locationError || '')}</p>
+          </div>
+        </div>`;
+    }
+  }
+
+  /* -----------------------------------------------------------
+     4. MAP
+     ----------------------------------------------------------- */
+
+  const userIcon = L.divIcon({
+    className: '', html: '<div class="st-pin">📍</div>',
+    iconSize: [34, 34], iconAnchor: [17, 17]
+  });
+  const poiIcon = L.divIcon({
+    className: '', html: '<div class="st-pin st-pin-poi">⭐</div>',
+    iconSize: [28, 28], iconAnchor: [14, 14]
+  });
+  const responderIcon = (type) => {
+    const emoji = type === 'police' ? '🚓' : type === 'hospital' ? '🏥' : '🏠';
+    const cls   = type === 'police' ? 'st-pin-police' : type === 'hospital' ? 'st-pin-hospital' : '';
+    return L.divIcon({
+      className: '',
+      html: `<div class="st-pin ${cls}">${emoji}</div>`,
+      iconSize: [34, 34], iconAnchor: [17, 17]
+    });
+  };
+
+  function initMap() {
+    if (state.map) return;
+    const el = $('#map');
+    if (!el) return;
+
+    const map = L.map(el, { zoomControl: true }).setView(FALLBACK_CENTER, 13);
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    state.map = map;
+    state.poiLayer = L.layerGroup().addTo(map);
+    state.responderLayer = L.layerGroup().addTo(map);
+
+    // Fix size after tab switch
+    setTimeout(() => map.invalidateSize(), 250);
+
+    if (state.position) updateUserMarker(true);
+    drawResponders();
+  }
+
+  function updateUserMarker(recenter = false) {
+    if (!state.map || !state.position) return;
+    const latlng = [state.position.lat, state.position.lng];
+
+    if (!state.userMarker) {
+      state.userMarker = L.marker(latlng, { icon: userIcon, zIndexOffset: 1000 })
+        .addTo(state.map).bindPopup('You are here');
+      state.accuracyCircle = L.circle(latlng, {
+        radius: state.position.accuracy || 40,
+        color: '#0f766e', weight: 1,
+        fillColor: '#14b8a6', fillOpacity: 0.12
+      }).addTo(state.map);
+      if (recenter) state.map.setView(latlng, 15);
+    } else {
+      state.userMarker.setLatLng(latlng);
+      if (state.accuracyCircle) {
+        state.accuracyCircle.setLatLng(latlng);
+        state.accuracyCircle.setRadius(state.position.accuracy || 40);
+      }
+    }
+  }
+
+  function drawResponders() {
+    if (!state.responderLayer) return;
+    state.responderLayer.clearLayers();
+    if (!state.position) return;
+
+    PLACES.map((p) => ({
+      ...p,
+      distanceKm: Number(haversineKm(state.position.lat, state.position.lng, p.lat, p.lng).toFixed(2))
+    }))
+    .sort((a, b) => a.distanceKm - b.distanceKm)
+    .slice(0, 6)
+    .forEach((p) => {
+      L.marker([p.lat, p.lng], { icon: responderIcon(p.type) })
+        .addTo(state.responderLayer)
+        .bindPopup(
+          `<strong>${escapeHtml(p.name)}</strong><br/>${p.distanceKm} km away<br/>` +
+          `<a href="tel:${escapeHtml(p.phone)}">${escapeHtml(p.phone)}</a>`
+        );
+    });
+  }
+
+  function renderPois() {
+    if (!state.poiLayer) return;
+    state.poiLayer.clearLayers();
+    if (!state.showPois || !state.pois.length) return;
+    state.pois.forEach((poi) => {
+      L.marker([poi.lat, poi.lng], { icon: poiIcon })
+        .addTo(state.poiLayer)
+        .bindPopup(`<strong>${escapeHtml(poi.name)}</strong><br/><span style="color:#64748b;text-transform:capitalize">${escapeHtml(poi.kind)}</span>`);
+    });
+  }
+
+  async function loadPois() {
+    if (!state.position) return;
+    const { lat, lng } = state.position;
+    const query = `
+      [out:json][timeout:20];
+      (
+        node["tourism"~"attraction|museum|viewpoint|artwork|gallery"](around:2500,${lat},${lng});
+        node["historic"~"monument|memorial|castle|fort|ruins"](around:2500,${lat},${lng});
+        node["leisure"="park"](around:2500,${lat},${lng});
+      );
+      out body 60;
+    `;
+    try {
+      const res = await fetchWithTimeout('https://overpass-api.de/api/interpreter', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'data=' + encodeURIComponent(query)
+      }, 20000);
+      if (!res.ok) throw new Error('overpass');
+      const data = await res.json();
+      state.pois = (data.elements || [])
+        .filter((el) => el.tags && (el.tags.name || el.tags['name:en']))
+        .map((el) => ({
+          id: el.id,
+          name: el.tags['name:en'] || el.tags.name,
+          kind: el.tags.tourism || el.tags.historic || el.tags.leisure || 'place',
+          lat: el.lat, lng: el.lon
+        })).slice(0, 50);
+      renderPois();
+    } catch {
+      // Silent — map still works without POIs
+      state.pois = [];
+    }
+  }
+
+  /* -----------------------------------------------------------
+     5. NEAREST RESPONDERS
+     ----------------------------------------------------------- */
+
+  function computeNearest() {
+    if (!state.position) return;
+    const withD = PLACES.map((p) => ({
+      ...p,
+      distanceKm: Number(haversineKm(state.position.lat, state.position.lng, p.lat, p.lng).toFixed(2))
+    })).sort((a, b) => a.distanceKm - b.distanceKm);
+
+    state.nearest = {
+      police:   withD.find((p) => p.type === 'police')   || null,
+      hospital: withD.find((p) => p.type === 'hospital') || null
+    };
+  }
+
+  /* -----------------------------------------------------------
+     6. SOS
+     ----------------------------------------------------------- */
+
+  const DISPATCH_STAGES = ['Notified', 'Acknowledged', 'Responder en route'];
+  let sosTimers = [];
+
+  function clearSosTimers() {
+    sosTimers.forEach(clearTimeout);
+    sosTimers = [];
+  }
+
+  function openModal(html, onMount) {
+    const root = $('#modalRoot');
+    root.innerHTML = html;
+    if (typeof onMount === 'function') onMount(root);
+  }
+
+  function closeModal() {
+    clearSosTimers();
+    $('#modalRoot').innerHTML = '';
+  }
+
+  function startSosCountdown() {
+    clearSosTimers();
+    let n = 3;
+
+    const draw = () => {
+      openModal(`
+        <div class="fixed inset-0 z-[60] bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-6 animate-fade-in">
+          <div class="bg-white rounded-3xl p-8 w-full max-w-sm text-center animate-slide-up">
+            <p class="text-slate-500 text-sm font-semibold uppercase tracking-wider">Sending SOS in</p>
+            <div class="text-7xl font-extrabold text-red-600 my-4 tabular-nums" id="sosCount">${n}</div>
+            <p class="text-slate-600 text-sm mb-6">Tap cancel if this was a mistake.</p>
+            <button id="sosCancel" class="w-full bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-xl py-4 font-semibold">Cancel</button>
+          </div>
+        </div>
+      `, (root) => {
+        $('#sosCancel', root)?.addEventListener('click', () => { clearSosTimers(); closeModal(); });
+      });
+    };
+
+    draw();
+    const tick = () => {
+      n -= 1;
+      if (n <= 0) { clearSosTimers(); fireSos(); return; }
+      const el = document.querySelector('#sosCount');
+      if (el) el.textContent = n;
+      sosTimers.push(setTimeout(tick, 1000));
+    };
+    sosTimers.push(setTimeout(tick, 1000));
+  }
+
+  async function fireSos() {
+    // Show "sending" screen
+    openModal(`
+      <div class="fixed inset-0 z-[60] bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-6 animate-fade-in">
+        <div class="bg-white rounded-3xl p-8 w-full max-w-sm text-center">
+          <div class="text-5xl mb-3 animate-bounce">📡</div>
+          <p class="font-bold text-slate-900 text-lg">Sending your alert…</p>
+          <p class="text-sm text-slate-500 mt-1">Please stay where you are.</p>
+        </div>
+      </div>
+    `);
+
+    // Simulate network delay then show the dispatch panel
+    sosTimers.push(setTimeout(() => {
+      const incidentId = 'ST-' + Date.now().toString().slice(-6);
+      const category = CATEGORIES.find((c) => c.id === state.selectedCategory) || CATEGORIES[0];
+      showDispatchPanel(incidentId, category);
+    }, 900));
+  }
+
+  function showDispatchPanel(incidentId, category) {
+    const police   = state.nearest.police;
+    const hospital = state.nearest.hospital;
+    const mapsLink = state.position
+      ? `https://www.google.com/maps?q=${state.position.lat},${state.position.lng}`
+      : 'Location unavailable';
+    const smsBody  = encodeURIComponent(`EMERGENCY — I need help. My location: ${mapsLink}`);
+
+    let stageIdx = 0;
+
+    const renderStages = () => DISPATCH_STAGES.map((stage, i) => {
+      const done = i <= stageIdx;
+      const curr = i === stageIdx;
+      return `
+        <li class="flex items-center gap-3">
+          <span class="h-6 w-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0
+            ${done ? 'bg-emerald-500 text-white' : 'bg-slate-200 text-slate-500'}
+            ${curr ? 'ring-4 ring-emerald-100' : ''}">
+            ${done ? '✓' : i + 1}
+          </span>
+          <span class="text-sm font-semibold ${done ? 'text-slate-900' : 'text-slate-400'}">${stage}</span>
+        </li>`;
+    }).join('');
+
+    const render = () => `
+      <div class="fixed inset-0 z-[60] bg-slate-900/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-6 overflow-y-auto animate-fade-in">
+        <div class="bg-white rounded-t-3xl sm:rounded-3xl w-full max-w-lg max-h-[92vh] overflow-y-auto animate-slide-up">
+          <div class="bg-gradient-to-br from-red-500 to-red-700 text-white p-5 rounded-t-3xl">
+            <div class="flex items-center gap-3">
+              <span class="text-3xl">✅</span>
+              <div>
+                <h2 class="font-extrabold text-lg leading-tight">Alert sent</h2>
+                <p class="text-xs text-red-100">Incident #${incidentId} · ${new Date().toLocaleTimeString()}</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="p-5 space-y-5">
+            <div>
+              <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Dispatch status</p>
+              <ol class="space-y-2" id="stages">${renderStages()}</ol>
+              <div class="mt-3 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-[11px] text-amber-800 leading-snug">
+                <strong>Demo notice:</strong> status is simulated. No real dispatcher was contacted.
+              </div>
+            </div>
+
+            ${(police || hospital) ? `
+              <div>
+                <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Nearest help</p>
+                <div class="space-y-2">
+                  ${hospital ? `
+                    <div class="card-tight flex items-center gap-3">
+                      <span class="text-2xl">🏥</span>
+                      <div class="min-w-0 flex-1">
+                        <p class="font-semibold text-sm text-slate-900 truncate">${escapeHtml(hospital.name)}</p>
+                        <p class="text-xs text-slate-500">${hospital.distanceKm} km away</p>
+                      </div>
+                      <a href="tel:${escapeHtml(hospital.phone)}" class="bg-brand-700 text-white text-xs font-bold px-3 py-2 rounded-lg shrink-0">Call</a>
+                    </div>` : ''}
+                  ${police ? `
+                    <div class="card-tight flex items-center gap-3">
+                      <span class="text-2xl">🚓</span>
+                      <div class="min-w-0 flex-1">
+                        <p class="font-semibold text-sm text-slate-900 truncate">${escapeHtml(police.name)}</p>
+                        <p class="text-xs text-slate-500">${police.distanceKm} km away</p>
+                      </div>
+                      <a href="tel:${escapeHtml(police.phone)}" class="bg-brand-700 text-white text-xs font-bold px-3 py-2 rounded-lg shrink-0">Call</a>
+                    </div>` : ''}
+                </div>
+              </div>` : ''}
+
+            <div>
+              <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Do this now</p>
+              <div class="space-y-2">
+                <a href="tel:${category.primary}" class="block text-center bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl py-3.5">
+                  📞 Call ${category.primary} — ${category.label} helpline
+                </a>
+                <a href="sms:?body=${smsBody}" class="block text-center bg-brand-700 hover:bg-brand-800 text-white font-bold rounded-xl py-3.5">
+                  💬 Text my location to a contact
+                </a>
+                <a href="${mapsLink}" target="_blank" rel="noopener" class="block text-center bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl py-3.5">
+                  📍 Open my location in Maps
+                </a>
+              </div>
+              <p class="text-[11px] text-slate-500 mt-2 leading-snug">
+                A call and an SMS run over the voice network — they work with no data plan. A website can't send SMS for you, so we pre-fill it and you tap send.
+              </p>
+            </div>
+
+            <button id="dispatchClose" class="w-full bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-xl py-3 font-semibold">Close</button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    openModal(render(), (root) => {
+      $('#dispatchClose', root)?.addEventListener('click', closeModal);
+
+      // Simulated dispatch progression
+      DISPATCH_STAGES.forEach((_, i) => {
+        if (i === 0) return;
+        sosTimers.push(setTimeout(() => {
+          stageIdx = i;
+          const stages = document.querySelector('#stages');
+          if (stages) stages.innerHTML = renderStages();
+        }, i * 3500 + 1200));
+      });
+    });
+  }
+
+  /* -----------------------------------------------------------
+     7. CATEGORY TILES + DETAIL SHEET
+     ----------------------------------------------------------- */
+
+  function renderCategories() {
+    const grid = $('#categoryGrid');
+    grid.innerHTML = CATEGORIES.map((c) => `
+      <button data-cat="${c.id}" class="catTile text-left rounded-2xl border p-3.5 transition active:scale-[0.97] ${c.color}">
+        <div class="flex items-start justify-between">
+          <span class="text-2xl leading-none">${c.emoji}</span>
+          <span class="text-[10px] font-bold bg-white/70 rounded-full px-2 py-0.5">${c.primary}</span>
+        </div>
+        <p class="font-bold text-sm mt-2 text-slate-900">${c.label}</p>
+        <p class="text-[11px] text-slate-600 leading-snug mt-0.5">${c.blurb}</p>
+      </button>
+    `).join('');
+
+    $$('.catTile').forEach((btn) => {
+      btn.addEventListener('click', () => openCategory(btn.dataset.cat));
+    });
+  }
+
+  function openCategory(id) {
+    const cat = CATEGORIES.find((c) => c.id === id);
+    if (!cat) return;
+    state.selectedCategory = id;
+
+    const html = `
+      <div id="catBackdrop" class="fixed inset-0 z-[55] bg-slate-900/70 backdrop-blur-sm flex items-end sm:items-center justify-center animate-fade-in">
+        <div id="catSheet" class="bg-white rounded-t-3xl sm:rounded-3xl w-full max-w-lg max-h-[90vh] overflow-y-auto animate-slide-up">
+          <div class="p-5 rounded-t-3xl ${cat.color} border-b border-slate-200">
+            <div class="flex items-center gap-3">
+              <span class="text-4xl">${cat.emoji}</span>
+              <div class="flex-1">
+                <h2 class="font-extrabold text-lg text-slate-900">${cat.label}</h2>
+                <p class="text-xs text-slate-700">${cat.blurb}</p>
+              </div>
+              <button id="catClose" class="h-8 w-8 rounded-full bg-white/80 text-slate-600 font-bold text-lg leading-none">×</button>
+            </div>
+          </div>
+
+          <div class="p-5 space-y-5">
+            <div>
+              <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Call for help</p>
+              <div class="flex flex-wrap gap-2">
+                <a href="tel:${cat.primary}" class="flex-1 min-w-[140px] text-center bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl py-3.5">📞 ${cat.primary}</a>
+                ${cat.alts.map((n) => `<a href="tel:${n}" class="flex-1 min-w-[100px] text-center bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl py-3.5">${n}</a>`).join('')}
+              </div>
+              <p class="text-[11px] text-slate-500 mt-2">All numbers are toll-free and work without a data plan.</p>
+            </div>
+
+            <div>
+              <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">What to do</p>
+              <ol class="space-y-2">
+                ${cat.checklist.map((step, i) => `
+                  <li class="flex gap-3 items-start">
+                    <span class="h-6 w-6 rounded-full ${cat.accent} text-white text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">${i + 1}</span>
+                    <span class="text-sm text-slate-700 leading-snug">${escapeHtml(step)}</span>
+                  </li>`).join('')}
+              </ol>
+            </div>
+
+            <button id="catClose2" class="w-full bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-xl py-3 font-semibold">Close</button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    openModal(html, (root) => {
+      const close = () => closeModal();
+      $('#catClose', root)?.addEventListener('click', close);
+      $('#catClose2', root)?.addEventListener('click', close);
+      $('#catBackdrop', root)?.addEventListener('click', (e) => {
+        if (e.target.id === 'catBackdrop') close();
+      });
+    });
+  }
+
+  /* -----------------------------------------------------------
+     8. WEATHER
+     ----------------------------------------------------------- */
+
+  async function loadWeather() {
+    const card = $('#weatherCard');
+    if (!state.position) return;
+
+    try {
+      const { lat, lng } = state.position;
+      const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}` +
+        `&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m` +
+        `&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=3`;
+
+      const res = await fetchWithTimeout(url, {}, 8000);
+      if (!res.ok) throw new Error('weather');
+      const data = await res.json();
+      const cur = data.current;
+      const [label, emoji] = WEATHER_CODES[cur.weather_code] || ['Unknown', '🌡️'];
+      const daily = data.daily;
+
+      card.innerHTML = `
+        <div class="flex items-start justify-between">
+          <div>
+            <p class="text-xs font-bold text-slate-400 uppercase tracking-wider">Right now</p>
+            <div class="flex items-baseline gap-2 mt-1">
+              <span class="text-4xl font-extrabold text-slate-900">${Math.round(cur.temperature_2m)}°</span>
+              <span class="text-sm text-slate-500 font-medium">C</span>
+            </div>
+            <p class="text-sm text-slate-600 font-medium mt-0.5">${emoji} ${label}</p>
+          </div>
+          <div class="text-right text-xs text-slate-500 space-y-1">
+            <p>Feels ${Math.round(cur.apparent_temperature)}°</p>
+            <p>💧 ${cur.relative_humidity_2m}%</p>
+            <p>💨 ${Math.round(cur.wind_speed_10m)} km/h</p>
+          </div>
+        </div>
+        ${daily?.time?.length > 1 ? `
+          <div class="mt-4 pt-3 border-t border-slate-100 grid grid-cols-3 gap-2">
+            ${daily.time.slice(0, 3).map((day, i) => {
+              const [dl, de] = WEATHER_CODES[daily.weather_code[i]] || ['', '🌡️'];
+              const dLabel = i === 0 ? 'Today' : new Date(day).toLocaleDateString('en-IN', { weekday: 'short' });
+              return `
+                <div class="text-center">
+                  <p class="text-[11px] font-bold text-slate-500">${dLabel}</p>
+                  <p class="text-lg">${de}</p>
+                  <p class="text-xs font-semibold text-slate-800">${Math.round(daily.temperature_2m_max[i])}° / ${Math.round(daily.temperature_2m_min[i])}°</p>
+                  <p class="text-[10px] text-slate-400 truncate px-1">${dl}</p>
+                </div>`;
+            }).join('')}
+          </div>` : ''}
+      `;
+    } catch {
+      card.innerHTML = `
+        <div class="flex items-center gap-2 mb-2">
+          <span class="text-lg">🌤️</span>
+          <p class="font-bold text-slate-900">Weather now</p>
+        </div>
+        <p class="text-sm text-slate-500">Weather is unavailable right now. Everything else still works.</p>`;
+    }
+  }
+
+  /* -----------------------------------------------------------
+     9. DISASTER ALERTS (SACHET RSS via CORS proxy)
+     ----------------------------------------------------------- */
+
+  // Public CORS proxy so the browser can read SACHET's RSS feed.
+  // For production you'd proxy this from your own server.
+  const CORS_PROXY = 'https://api.allorigins.win/raw?url=';
+
+  function inferSeverity(text) {
+    const t = String(text || '').toLowerCase();
+    if (/\b(extreme|red alert|very severe|catastroph|tsunami)\b/.test(t)) return 'Extreme';
+    if (/\b(severe|orange alert|heavy|cyclone|flood|earthquake|landslide)\b/.test(t)) return 'Severe';
+    if (/\b(moderate|yellow alert|warning|alert|thunderstorm)\b/.test(t)) return 'Moderate';
+    if (/\b(minor|low|advisory|watch)\b/.test(t)) return 'Minor';
+    return 'Unknown';
+  }
+
+  const SEVERITY_STYLES = {
+    Extreme: 'bg-red-100 text-red-800 border-red-300',
+    Severe:  'bg-orange-100 text-orange-800 border-orange-300',
+    Moderate:'bg-amber-100 text-amber-800 border-amber-300',
+    Minor:   'bg-emerald-100 text-emerald-800 border-emerald-300',
+    Unknown: 'bg-slate-100 text-slate-700 border-slate-300'
+  };
+
+  function stripHtml(s) {
+    return String(s || '')
+      .replace(/<[^>]*>/g, ' ')
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"')
+      .replace(/\s+/g, ' ').trim();
+  }
+
+  function timeAgo(str) {
+    if (!str) return '';
+    const t = new Date(str).getTime();
+    if (isNaN(t)) return '';
+    const mins = Math.floor((Date.now() - t) / 60000);
+    if (mins < 1) return 'just now';
+    if (mins < 60) return mins + 'm ago';
+    const h = Math.floor(mins / 60);
+    if (h < 24) return h + 'h ago';
+    return Math.floor(h / 24) + 'd ago';
+  }
+
+  async function loadAlerts(stateSlug) {
+    const feed = $('#alertsFeed');
+    feed.innerHTML = `
+      <div class="space-y-2">
+        <div class="h-14 bg-slate-100 rounded-xl animate-pulse"></div>
+        <div class="h-14 bg-slate-100 rounded-xl animate-pulse"></div>
+      </div>`;
+
+    const feedUrl = `https://sachet.ndma.gov.in/cap_public_website/rss/rss_${stateSlug}.xml`;
+
+    try {
+      const res = await fetchWithTimeout(CORS_PROXY + encodeURIComponent(feedUrl), {}, 12000);
+      if (!res.ok) throw new Error('feed');
+      const xml = await res.text();
+
+      // Parse via DOMParser
+      const doc = new DOMParser().parseFromString(xml, 'text/xml');
+      const items = Array.from(doc.querySelectorAll('item, entry')).slice(0, 15);
+
+      if (!items.length) {
+        feed.innerHTML = `
+          <div class="rounded-xl bg-emerald-50 border border-emerald-200 px-3 py-3 flex items-start gap-2">
+            <span class="text-lg leading-none">✅</span>
+            <div>
+              <p class="text-sm font-semibold text-emerald-900">No active alerts</p>
+              <p class="text-xs text-emerald-700 mt-0.5">Nothing reported for this state right now.</p>
+            </div>
+          </div>`;
+        return;
+      }
+
+      const alerts = items.map((item, i) => {
+        const title = stripHtml(item.querySelector('title')?.textContent || 'Disaster alert');
+        const desc  = stripHtml(item.querySelector('description, summary')?.textContent || '').slice(0, 300);
+        const date  = item.querySelector('pubDate, updated, published')?.textContent || '';
+        const link  = item.querySelector('link')?.textContent
+                   || item.querySelector('link')?.getAttribute('href')
+                   || 'https://sachet.ndma.gov.in/';
+        const sev = inferSeverity(title + ' ' + desc);
+        return { id: i, title, desc, date, link, sev };
+      });
+
+      feed.innerHTML = `
+        <div class="space-y-2 max-h-80 overflow-y-auto pr-1 -mr-1">
+          ${alerts.map((a) => `
+            <a href="${escapeHtml(a.link)}" target="_blank" rel="noopener"
+               class="block rounded-xl border px-3 py-2.5 transition hover:brightness-[0.97] ${SEVERITY_STYLES[a.sev]}">
+              <div class="flex items-center justify-between gap-2 mb-1">
+                <span class="text-[10px] font-extrabold uppercase tracking-wider">${a.sev}</span>
+                <span class="text-[10px] opacity-70">${timeAgo(a.date)}</span>
+              </div>
+              <p class="text-sm font-bold leading-snug line-clamp-2">${escapeHtml(a.title)}</p>
+              ${a.desc ? `<p class="text-[11px] opacity-80 mt-1 line-clamp-2">${escapeHtml(a.desc)}</p>` : ''}
+            </a>
+          `).join('')}
+        </div>
+        <p class="text-[10px] text-slate-400 mt-2 leading-snug">
+          Severity is inferred from feed keywords. Source: sachet.ndma.gov.in
+        </p>
+      `;
+    } catch {
+      feed.innerHTML = `
+        <div class="rounded-xl bg-slate-50 border border-slate-200 px-3 py-3">
+          <p class="text-sm font-semibold text-slate-700">Couldn't load alerts</p>
+          <p class="text-xs text-slate-500 mt-0.5">The public feed or the CORS proxy may be down. Everything else still works.</p>
+        </div>`;
+    }
+  }
+
+  /* -----------------------------------------------------------
+     10. CONTACTS LIST
+     ----------------------------------------------------------- */
+
+  function renderContacts() {
+    const list = $('#contactsList');
+    list.innerHTML = CONTACTS.map((c) => `
+      <a href="tel:${c.number}" class="card-tight flex items-center gap-3 hover:bg-slate-50 transition">
+        <div class="h-11 w-11 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center text-xl shrink-0">📞</div>
+        <div class="min-w-0 flex-1">
+          <p class="text-xs font-bold text-brand-700 tracking-wide">${escapeHtml(c.number)}</p>
+          <p class="text-sm font-semibold text-slate-800 leading-tight truncate">${escapeHtml(c.service)}</p>
+        </div>
+        <span class="text-[10px] font-bold px-2 py-1 rounded-full bg-slate-100 text-slate-500 shrink-0">${escapeHtml(c.cat)}</span>
+      </a>
+    `).join('');
+  }
+
+  /* -----------------------------------------------------------
+     11. TOURIST LINKS
+     ----------------------------------------------------------- */
+
+  function renderTouristLinks() {
+    const grid = $('#touristLinks');
+    grid.innerHTML = TOURIST_LINKS.map((l) => `
+      <a href="${l.url}" target="_blank" rel="noopener"
+         class="card-tight flex items-center gap-3 hover:bg-slate-50 transition">
+        <span class="text-2xl shrink-0">${l.emoji}</span>
+        <div class="min-w-0">
+          <p class="text-sm font-bold text-slate-900 truncate">${escapeHtml(l.name)}</p>
+          <p class="text-[11px] text-slate-500">${escapeHtml(l.desc)}</p>
+        </div>
+      </a>
+    `).join('');
+  }
+
+  /* -----------------------------------------------------------
+     12. VOICE ASSISTANT
+     ----------------------------------------------------------- */
+
+  let recognition = null;
+  let listening = false;
+
+  function initVoice() {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const micBtn = $('#micBtn');
+    const micRing = $('#micRing');
+    const micHint = $('#micHint');
+
+    if (!SR) {
+      micBtn.style.opacity = '0.5';
+      micBtn.style.cursor = 'not-allowed';
+      micHint.textContent = 'Voice input not supported in this browser. Try Chrome or Edge. Use the quick phrases below instead.';
+      micBtn.addEventListener('click', () => {
+        micHint.textContent = '🎤 Not supported here — pick a quick phrase below, or open in Chrome.';
+      });
+    } else {
+      recognition = new SR();
+      recognition.continuous = false;
+      recognition.interimResults = false;
+      recognition.lang = $('#fromLang').value;
+
+      recognition.onstart = () => {
+        listening = true;
+        micRing.style.display = 'block';
+        micHint.textContent = 'Listening… speak now.';
+      };
+      recognition.onend = () => {
+        listening = false;
+        micRing.style.display = 'none';
+        micHint.textContent = 'Tap and speak. Chrome / Edge recommended.';
+      };
+      recognition.onerror = (e) => {
+        listening = false;
+        micRing.style.display = 'none';
+        micHint.textContent = 'Could not hear you (' + (e.error || 'error') + '). Try again or use a quick phrase.';
+      };
+      recognition.onresult = (e) => {
+        const text = e.results[0][0].transcript;
+        handleVoiceResult(text);
+      };
+
+      micBtn.addEventListener('click', () => {
+        if (listening) return;
+        recognition.lang = $('#fromLang').value;
+        try { recognition.start(); }
+        catch { /* already started */ }
+      });
+    }
+
+    // Read aloud
+    $('#speakBtn').addEventListener('click', () => {
+      const text = $('#translatedText').textContent || '';
+      if (!text || text === '—') return;
+      if (!('speechSynthesis' in window)) { alert('Read-aloud is not supported in this browser.'); return; }
+      window.speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(text);
+      const toCode = $('#toLang').value;
+      const langMap = { en:'en-IN', hi:'hi-IN', ta:'ta-IN', bn:'bn-IN', mr:'mr-IN', es:'es-ES', fr:'fr-FR', de:'de-DE', ja:'ja-JP' };
+      u.lang = langMap[toCode] || 'en-IN';
+      window.speechSynthesis.speak(u);
+    });
+
+    // Quick phrase chips
+    const chips = $('#phraseChips');
+    chips.innerHTML = PHRASEBOOK.map((p, i) => `
+      <button data-phrase="${i}" class="text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-full px-3 py-1.5 transition">
+        ${escapeHtml(p.en)}
+      </button>
+    `).join('');
+    chips.querySelectorAll('[data-phrase]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const p = PHRASEBOOK[Number(btn.dataset.phrase)];
+        if (p) handleVoiceResult(p.en);
+      });
+    });
+  }
+
+  async function handleVoiceResult(text) {
+    $('#heardText').textContent = text;
+    $('#translatedText').textContent = 'Translating…';
+    $('#translateNote').textContent = '';
+
+    const to = $('#toLang').value;
+    const from = ($('#fromLang').value || 'en-IN').split('-')[0];
+
+    // 1. Try LibreTranslate public mirrors
+    const mirrors = [
+      'https://translate.terraprint.co/translate',
+      'https://libretranslate.de/translate',
+      'https://translate.fedilab.app/translate'
+    ];
+
+    for (const url of mirrors) {
+      try {
+        const res = await fetchWithTimeout(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ q: text, source: from, target: to, format: 'text' })
+        }, 6000);
+        if (!res.ok) continue;
+        const data = await res.json();
+        if (data?.translatedText && data.translatedText.trim()) {
+          $('#translatedText').textContent = data.translatedText;
+          $('#translateNote').textContent = 'Translated live.';
+          return;
+        }
+      } catch { /* try next */ }
+    }
+
+    // 2. Offline phrasebook fallback
+    const needle = text.trim().toLowerCase().replace(/[?.!]/g, '');
+    const hit = PHRASEBOOK.find((p) => p.en.toLowerCase().replace(/[?.!]/g, '') === needle);
+    if (hit && hit[to]) {
+      $('#translatedText').textContent = hit[to];
+      $('#translateNote').textContent = 'From our built-in emergency phrasebook (live translation was unreachable).';
+      return;
+    }
+
+    // 3. Give up gracefully
+    $('#translatedText').textContent = text;
+    $('#translateNote').textContent = 'Live translation unavailable. Showing your original text.';
+  }
+
+  /* -----------------------------------------------------------
+     13. TABS
+     ----------------------------------------------------------- */
+
+  function switchTab(tab) {
+    state.currentTab = tab;
+
+    $$('.tab-panel').forEach((el) => el.classList.remove('active'));
+    const active = document.getElementById('tab-' + tab);
+    if (active) active.classList.add('active');
+
+    $$('.navBtn').forEach((btn) => {
+      const isActive = btn.dataset.tab === tab;
+      btn.classList.toggle('text-brand-700', isActive);
+      btn.classList.toggle('text-slate-400', !isActive);
+      const bar = btn.querySelector('span:last-child');
+      if (bar) bar.className = `h-0.5 w-6 rounded-full ${isActive ? 'bg-brand-600' : 'bg-transparent'}`;
+    });
+
+    // Lazy init map on first open, then fix its size
+    if (tab === 'map') {
+      setTimeout(() => {
+        initMap();
+        if (state.map) state.map.invalidateSize();
+      }, 60);
+    }
+  }
+
+  /* -----------------------------------------------------------
+     14. WIRING
+     ----------------------------------------------------------- */
+
+  function bindEvents() {
+    // Nav
+    $$('.navBtn').forEach((btn) => {
+      btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+    });
+
+    // SOS
+    $('#sosBtn').addEventListener('click', startSosCountdown);
+
+    // Map controls
+    $('#togglePois').addEventListener('click', () => {
+      state.showPois = !state.showPois;
+      const btn = $('#togglePois');
+      btn.classList.toggle('bg-brand-100', state.showPois);
+      btn.classList.toggle('bg-slate-100', !state.showPois);
+      btn.classList.toggle('text-brand-800', state.showPois);
+      btn.classList.toggle('text-slate-700', !state.showPois);
+      renderPois();
+    });
+    $('#recenterBtn').addEventListener('click', () => {
+      if (state.map && state.position) state.map.setView([state.position.lat, state.position.lng], 15);
+    });
+
+    // Alerts dropdown
+    $('#stateSelect').addEventListener('change', (e) => loadAlerts(e.target.value));
+
+    // Escape closes modals
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closeModal();
+    });
+  }
+
+  /* -----------------------------------------------------------
+     15. BOOT
+     ----------------------------------------------------------- */
+
+  function boot() {
+    hydrateCache();
+    renderCategories();
+    renderContacts();
+    renderTouristLinks();
+    renderLocationUI();
+    bindEvents();
+    initVoice();
+    loadAlerts('rajasthan');
+    startGeolocation();
+
+    // Refresh "X minutes ago" every 30s
+    setInterval(renderLocationUI, 30000);
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', boot);
+  } else {
+    boot();
+  }
+
+})();
+</script>
+</body>
+</html>
